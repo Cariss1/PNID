@@ -1,0 +1,64 @@
+name: CI Assessment Workflow
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    # 3. Мультиверсійне тестування (Matrix)
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 pytest pytest-html
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    # 2. Перевірка стилю коду (Linting)
+    - name: Lint with flake8
+      run: |
+        # зупиняємо збірку, якщо є помилки синтаксису Python або невизначені змінні
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # попередження (exit-zero) для всього іншого
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    # 1. Автоматичне тестування з Pytest
+    # 5. Автоматичний HTML-звіт
+    - name: Test with pytest and generate report
+      run: |
+        pytest --html=report.html --self-contained-html
+
+    # Завантаження звіту як артефакту, щоб його можна було завантажити з GitHub
+    - name: Upload HTML report
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-report-${{ matrix.python-version }}
+        path: report.html
+
+  build-docker:
+    needs: test-and-lint # Збірка почнеться тільки після успішних тестів
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 4. Збірка Docker-контейнера
+    - name: Build Docker image
+      run: |
+        docker build -t my-app-image:latest .
+        docker images # Перевірка, що образ створено
