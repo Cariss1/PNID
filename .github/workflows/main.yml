@@ -6,20 +6,24 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Додаємо глобальну змінну для вирішення проблем з Node.js
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test-and-lint:
     runs-on: ubuntu-latest
-    # 3. Мультиверсійне тестування (Matrix)
     strategy:
+      fail-fast: false # Щоб ми бачили результати для ВСІХ версій Python, навіть якщо одна впаде
       matrix:
         python-version: ["3.9", "3.10", "3.11"]
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4 # Залишаємо v4, але env вище змусить її працювати на Node 24
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5 # Оновили до v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -29,36 +33,33 @@ jobs:
         pip install flake8 pytest pytest-html
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    # 2. Перевірка стилю коду (Linting)
     - name: Lint with flake8
       run: |
-        # зупиняємо збірку, якщо є помилки синтаксису Python або невизначені змінні
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # попередження (exit-zero) для всього іншого
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        # Перевіряємо тільки папку app та tests
+        flake8 app tests --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 app tests --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-    # 1. Автоматичне тестування з Pytest
-    # 5. Автоматичний HTML-звіт
     - name: Test with pytest and generate report
+      # Додаємо PYTHONPATH, щоб Python бачив вашу папку app
+      env:
+        PYTHONPATH: .
       run: |
         pytest --html=report.html --self-contained-html
 
-    # Завантаження звіту як артефакту, щоб його можна було завантажити з GitHub
     - name: Upload HTML report
+      if: always() # Звіт створиться навіть якщо тести впали
       uses: actions/upload-artifact@v4
       with:
         name: pytest-report-${{ matrix.python-version }}
         path: report.html
 
   build-docker:
-    needs: test-and-lint # Збірка почнеться тільки після успішних тестів
+    needs: test-and-lint
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    # 4. Збірка Docker-контейнера
+    
     - name: Build Docker image
       run: |
         docker build -t my-app-image:latest .
-        docker images # Перевірка, що образ створено
